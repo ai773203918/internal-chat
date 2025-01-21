@@ -301,8 +301,10 @@ function enterTxt(event) {
   }
 }
 
+const roomId = window.location.pathname.split('/')[1];
+
 // 连接信令服务器
-const signalingServer = new WebSocket(wsUrl);
+const signalingServer = new WebSocket(wsUrl.replace(/\/$/g, '') + '/' + roomId);
 signalingServer.onopen = () => {
   console.log('Connected to signaling server');
   
