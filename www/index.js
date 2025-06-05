@@ -1,4 +1,5 @@
-const wsUrl = 'wss://fagedongxi.com/ws';
+const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+const wsUrl = `${wsProtocol}://${window.location.hostname}${window.location.port ? `:${window.location.port}` : ''}/ws`;
 
 var users = [];
 var me = new XChatUser();
@@ -196,12 +197,88 @@ function addLinkItem(uid, file) {
   const user = users.find(u => u.id === uid);
   const displayName = user?.nickname || uid;
   
+  // 检查是否是图片文件
+  const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(file.name);
+  
+  let contentHtml = '';
+  if (isImage) {
+    contentHtml = `
+      <div class="image-preview">
+        <img src="${file.url}" alt="${file.name}" />
+      </div>
+      <button class="copy-btn" onclick="this.parentElement.querySelector('a').click()">
+        <svg viewBox="0 0 24 24" width="20" height="20">
+          <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
+        </svg>
+      </button>
+      <a href="${file.url}" download="${file.name}" style="display: none;"></a>
+    `;
+  } else {
+    contentHtml = `<a class="file" href="${file.url}" download="${file.name}">[文件] ${file.name}</a>`;
+  }
+  
   chatItem.innerHTML = `
     <div class="chat-item_user">${uid === me.id ? '（我）': ''}${displayName} :</div>
-    <div class="chat-item_content"><a class="file" href="${file.url}" download="${file.name}">[文件] ${file.name}</a></div>
+    <div class="chat-item_content">${contentHtml}</div>
   `;
+  
+  // 如果是图片，添加点击事件和加载完成后的滚动
+  if (isImage) {
+    const img = chatItem.querySelector('img');
+    img.onclick = function() {
+      // 创建一个新的图片元素来预览
+      const previewImg = new Image();
+      previewImg.src = this.src;
+      
+      // 等待图片加载完成
+      previewImg.onload = function() {
+        // 创建一个新的窗口
+        const previewWindow = window.open('', '_blank');
+        if (previewWindow) {
+          // 设置预览窗口的内容
+          previewWindow.document.write(`
+            <html>
+              <head>
+                <title>${file.name}</title>
+                <style>
+                  body {
+                    margin: 0;
+                    padding: 20px;
+                    background: #1a1a1a;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: 100vh;
+                  }
+                  img {
+                    max-width: 100%;
+                    max-height: 90vh;
+                    object-fit: contain;
+                  }
+                </style>
+              </head>
+              <body>
+                <img src="${previewImg.src}" alt="${file.name}" />
+              </body>
+            </html>
+          `);
+          previewWindow.document.close();
+        }
+      };
+    };
+
+    // 等待图片加载完成后再滚动
+    img.onload = function() {
+      chatBox.scrollTop = chatBox.scrollHeight;
+    };
+  }
+  
   chatBox.appendChild(chatItem);
-  chatBox.scrollTop = chatBox.scrollHeight;
+  
+  // 如果不是图片，立即滚动
+  if (!isImage) {
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
 }
 
 function addChatItem(uid, message) {
@@ -222,10 +299,10 @@ function addChatItem(uid, message) {
   const chatItem = document.createElement('div');
   chatItem.className = 'chat-item';
   let msg = message.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const copyText = msg
-  // 判断是否url，兼容端口号的网址,http://127.0.0.1:8080/
-  if (/(http|https):\/\/[a-zA-Z0-9\.\-\/\?=\:_]+/g.test(msg)) {
-    msg = msg.replace(/(http|https):\/\/[a-zA-Z0-9\.\-\/\?=\:_]+/g, (url) => {
+  const copyText = msg;
+  // 判断是否url，兼容端口号和带参数的网址
+  if (/(http|https):\/\/[^\s<>"']+/g.test(msg)) {
+    msg = msg.replace(/(http|https):\/\/[^\s<>"']+/g, (url) => {
       return `<a href="${url}" target="_blank">${url}</a>`;
     });
   }
@@ -670,4 +747,25 @@ document.addEventListener('DOMContentLoaded', function() {
   if (window.innerWidth <= 768) {
     document.body.classList.remove('show-users');
   }
+
+  // 添加粘贴事件监听
+  document.addEventListener('paste', async (event) => {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of items) {
+      if (item.type.indexOf('image') !== -1) {
+        event.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          // 创建一个新的 File 对象，确保有正确的文件名
+          const imageFile = new File([file], `pasted-image-${Date.now()}.png`, {
+            type: 'image/png'
+          });
+          await sendFile(imageFile);
+        }
+        break;
+      }
+    }
+  });
 });
